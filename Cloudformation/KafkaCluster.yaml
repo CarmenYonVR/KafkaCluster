@@ -1,0 +1,4 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: |
+  Create a KafKa cluster without using MKS
