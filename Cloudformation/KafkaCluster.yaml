@@ -1,4 +1,320 @@
-AWSTemplateFormatVersion: "2010-09-09"
+AWSTemplateFormatVersion: 2010-09-09
 
 Description: |
   Create a KafKa cluster without using MKS
+
+Parameters:
+  # Configuration for EC2 Instances
+  # IP Addresses for each broker
+  Broker0IP:
+    Type: String
+    Default: 10.192.11.5
+  Broker0ID:
+    Type: String
+    Default: WtToW5ylTEKU5Dm3TbRYwg
+  Broker1IP:
+    Type: String
+    Default: 10.192.11.6
+  Broker1ID:
+    Type: String
+    Default: ZLXjKQajSR61NZjxrljh9Q
+  Broker2IP:
+    Type: String
+    Default: 10.192.11.7
+  Broker2ID:
+    Type: String
+    Default: 1rXKnBXJTZW3H32gqvCdNA
+  BrokerInstanceType:
+    Type: String
+    Default: t2.medium
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+    Description: "Enter t2.micro, t2.small, or t2.medium. Default is t2.medium"
+  AmiID:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Description: The ID of the AMI.
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+  KafkaClusterID:
+    Type: String
+    Default: 58KYKy0VTL-31339uL9O2w
+
+  # Configuration for VPC and Networking
+  EnvironmentName:
+    Description: An environment name that is prefied to resource names
+    Type: String
+    Default: CF-Kafka
+  VpcCIDR:
+    Type: String
+    Default: 10.192.0.0/16
+  PublicSubnetCIDR:
+    Description: CIDR for public subnet
+    Type: String
+    Default: 10.192.10.0/24
+  PrivateSubnetCIDR:
+    Description: CIDR for private subnet
+    Type: String
+    Default: 10.192.11.0/24
+
+Resources:
+  # Create the VPC
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName}-VPC
+
+  # Create the internet gateway and attatch it to the VPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub IGW-${EnvironmentName}
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  # Create a private and a public subnet
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PublicSubnetCIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Subnet
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      CidrBlock: !Ref PrivateSubnetCIDR
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Subnet
+
+  # Create the Nat Gateway with an elastic IP
+  NatGatewayEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+  NatGateway1:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+
+  # Create public routes
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Public Routes
+  # Route all outbound traffic to the internet gateway
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  # Associate public route table with public subnet
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  # Create private routes
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub ${EnvironmentName} Private Routes (AZ1)
+  # Route outbuound traffic to the nat gateway
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway1
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      SubnetId: !Ref PrivateSubnet
+
+  # Create security group for Kafka instances allowing kafka ports and ssh from wihin the VPC
+  KafkaBrokerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Security Group for Kafka Brokers"
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCIDR
+          IpProtocol: tcp
+          FromPort: 9091
+          ToPort: 9093
+        - CidrIp: !Ref VpcCIDR
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+
+  BastionHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: "Security Group for Bastion Host"
+      SecurityGroupIngress:
+        - CidrIp: !Ref VpcCIDR
+          IpProtocol: tcp
+          FromPort: 9091
+          ToPort: 9093
+        - CidrIp: !Ref VpcCIDR
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+        - SourcePrefixListId: pl-0e4bcff02b13bef1e # allow instance connect in us-east-1
+          FromPort: 22
+          ToPort: 22
+          IpProtocol: tcp
+
+  KafkaBroker0:
+    Type: AWS::EC2::Instance
+    Properties:
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeviceIndex: "0"
+          SubnetId: !Ref PrivateSubnet
+          GroupSet:
+            - !Ref KafkaBrokerSecurityGroup
+          PrivateIpAddress: !Ref Broker0IP
+      ImageId: !Ref AmiID
+      InstanceType: !Ref BrokerInstanceType
+      Tags:
+        - Key: Name
+          Value: CFKafkaBroker0
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install tar -y
+          yum install xz -y
+          yum install gzip -y
+          yum install java-17-amazon-corretto-devel -y
+          curl -O https://dlcdn.apache.org/kafka/4.2.0/kafka_2.13-4.2.0.tgz
+          tar -xzf kafka_2.13-4.2.0.tgz
+          cd kafka_2.13-4.2.0
+          sed -i 's|node.id=1|node.id=1|' config/server.properties
+          sed -i 's|controller.quorum.bootstrap.servers=localhost:9093|controller.quorum.bootstrap.servers=${Broker0IP}:9093,${Broker1IP}:9093,${Broker2IP}:9093|' config/server.properties
+          sed -i 's|advertised.listeners=PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093|advertised.listeners=PLAINTEXT://${Broker0IP}:9092,CONTROLLER://${Broker0IP}:9093|' config/server.properties
+          KAFKA_CLUSTER_ID="${KafkaClusterID}"
+          bin/kafka-storage.sh format --initial-controllers '1@${Broker0IP}:9093:${Broker0ID},2@${Broker1IP}:9093:${Broker1ID},3@${Broker2IP}:9093:${Broker2ID}' -t $KAFKA_CLUSTER_ID -c config/server.properties
+          bin/kafka-server-start.sh config/server.properties
+
+  KafkaBroker1:
+    Type: AWS::EC2::Instance
+    Properties:
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeviceIndex: "0"
+          SubnetId: !Ref PrivateSubnet
+          GroupSet:
+            - !Ref KafkaBrokerSecurityGroup
+          PrivateIpAddress: !Ref Broker1IP
+      ImageId: !Ref AmiID
+      InstanceType: !Ref BrokerInstanceType
+      Tags:
+        - Key: Name
+          Value: CFKafkaBroker1
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install tar -y
+          yum install xz -y
+          yum install gzip -y
+          yum install java-17-amazon-corretto-devel -y
+          curl -O https://dlcdn.apache.org/kafka/4.2.0/kafka_2.13-4.2.0.tgz
+          tar -xzf kafka_2.13-4.2.0.tgz
+          cd kafka_2.13-4.2.0
+          sed -i 's|node.id=1|node.id=2|' config/server.properties
+          sed -i 's|controller.quorum.bootstrap.servers=localhost:9093|controller.quorum.bootstrap.servers=${Broker0IP}:9093,${Broker1IP}:9093,${Broker2IP}:9093|' config/server.properties
+          sed -i 's|advertised.listeners=PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093|advertised.listeners=PLAINTEXT://${Broker1IP}:9092,CONTROLLER://${Broker1IP}:9093|' config/server.properties
+          KAFKA_CLUSTER_ID="58KYKy0VTL-31339uL9O2w"
+          bin/kafka-storage.sh format --initial-controllers '1@${Broker0IP}:9093:${Broker0ID},2@${Broker1IP}:9093:${Broker1ID},3@${Broker2IP}:9093:${Broker2ID}' -t $KAFKA_CLUSTER_ID -c config/server.properties
+          bin/kafka-server-start.sh config/server.properties
+
+  KafkaBroker2:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeviceIndex: "0"
+          SubnetId: !Ref PrivateSubnet
+          GroupSet:
+            - !Ref KafkaBrokerSecurityGroup
+          PrivateIpAddress: !Ref Broker2IP
+      ImageId: !Ref AmiID
+      InstanceType: !Ref BrokerInstanceType
+      Tags:
+        - Key: Name
+          Value: CFKafkaBroker2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install tar -y
+          yum install xz -y
+          yum install gzip -y
+          yum install java-17-amazon-corretto-devel -y
+          curl -O https://dlcdn.apache.org/kafka/4.2.0/kafka_2.13-4.2.0.tgz
+          tar -xzf kafka_2.13-4.2.0.tgz
+          cd kafka_2.13-4.2.0
+          sed -i 's|node.id=1|node.id=3|' config/server.properties
+          sed -i 's|controller.quorum.bootstrap.servers=localhost:9093|controller.quorum.bootstrap.servers=${Broker0IP}:9093,${Broker1IP}:9093,${Broker2IP}:9093|' config/server.properties
+          sed -i 's|advertised.listeners=PLAINTEXT://localhost:9092,CONTROLLER://localhost:9093|advertised.listeners=PLAINTEXT://${Broker2IP}:9092,CONTROLLER://${Broker2IP}:9093|' config/server.properties
+          KAFKA_CLUSTER_ID="58KYKy0VTL-31339uL9O2w"
+          bin/kafka-storage.sh format --initial-controllers '1@${Broker0IP}:9093:${Broker0ID},2@${Broker1IP}:9093:${Broker1ID},3@${Broker2IP}:9093:${Broker2ID}' -t $KAFKA_CLUSTER_ID -c config/server.properties
+          bin/kafka-server-start.sh config/server.properties
+
+  BastionHost:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: "0"
+          SubnetId: !Ref PublicSubnet
+          GroupSet:
+            - !Ref BastionHostSecurityGroup
+      ImageId: !Ref AmiID
+      InstanceType: t2.micro
+      Tags:
+        - Key: Name
+          Value: CFBastionHost
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install tar -y
+          yum install xz -y
+          yum install gzip -y
+          yum install java-17-amazon-corretto-devel -y
+          curl -O https://dlcdn.apache.org/kafka/4.2.0/kafka_2.13-4.2.0.tgz
+          tar -xzf kafka_2.13-4.2.0.tgz
