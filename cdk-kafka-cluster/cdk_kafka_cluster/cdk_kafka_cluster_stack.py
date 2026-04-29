@@ -16,9 +16,10 @@ class CdkKafkaClusterStack(Stack):
         vpc_cidr_range = "10.193.0.0/16"
         num_brokers = 3
 
-        # Define the VPC, don't let it create the default subnets
+        # Define the VPC
         vpc = ec2.Vpc(self, "CDK-Kafka-VPC", ip_addresses=ec2.IpAddresses.cidr("10.193.0.0/16"))
 
+        # Create a route53 hosted zone where we can store the IP addresses of our brokers
         hosted_zone_fqdn = "cdk-kafka-broker.local"
         zone = route53.PrivateHostedZone(
             self,
@@ -27,7 +28,7 @@ class CdkKafkaClusterStack(Stack):
             vpc=vpc,
         )
 
-        # Broker Configuration
+        # Create Brokers
         broker_security_group = ec2.SecurityGroup(
             self, "BrokerSecurityGroup", vpc=vpc, description="Allow SSH and Kafka"
         )
@@ -40,7 +41,6 @@ class CdkKafkaClusterStack(Stack):
             ec2.Peer.ipv4(vpc_cidr_range), ec2.Port.SSH, "Allow SSH from within VPC"
         )
 
-        # Create Brokers
         brokers: list[ec2.Instance] = []
         for i in range(num_brokers):
             brokers.append(
@@ -60,7 +60,7 @@ class CdkKafkaClusterStack(Stack):
                 )
             )
 
-            # Add the broker to the hosted zone attatched to the VPC so we don't have to keep track of IPs
+            # Add the broker to the hosted zone attatched to the VPC so we don't have to keep track of IPs directly
             route53.ARecord(
                 self,
                 f"Broker{i}Record",
@@ -72,7 +72,7 @@ class CdkKafkaClusterStack(Stack):
                 ttl=Duration.seconds(30),
             )
 
-        # must be same length as num
+        # should be same length as num_brokers
         broker_ids = [
             "WtToW5ylTEKU5Dm3TbRYwg",
             "ZLXjKQajSR61NZjxrljh9Q",
@@ -80,7 +80,7 @@ class CdkKafkaClusterStack(Stack):
         ]
         kafka_cluster_id = "58KYKy0VTL-31339uL9O2w"
 
-        # create user data
+        # create user data script to install kafka and configure the service
         for i in range(num_brokers):
             brokers[i].add_user_data(
                 "yum update -y",
@@ -100,7 +100,7 @@ class CdkKafkaClusterStack(Stack):
                 "bin/kafka-server-start.sh config/server.properties",
             )
 
-        # Bastion Host Configuration
+        # Create the Bastion Host
         bastion_host_security_group = ec2.SecurityGroup(
             self,
             "BastionSecurityGroup",
@@ -110,7 +110,7 @@ class CdkKafkaClusterStack(Stack):
         bastion_host_security_group.add_ingress_rule(
             ec2.Peer.prefix_list("pl-0e4bcff02b13bef1e"),
             ec2.Port.SSH,
-            "Allow SSH ports from ec2 instance connect",
+            "Allow SSH from ec2 instance connect",
         )
         bastion_host = ec2.Instance(
             self,
