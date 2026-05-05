@@ -20,18 +20,6 @@ variable "hosted_zone_fqdn" {
   default     = "tf-kafka-broker.com"
 }
 
-# variable "kafka_cluster_id" {
-#   description = "Kafka cluster ID"
-#   type        = string
-#   default     = "58KYKy0VTL-31339uL9O2w"
-# }
-
-# variable "broker_ids" {
-#   description = "An array of Kafka broker IDs"
-#   type        = list(string)
-#   default     = ["WtToW5ylTEKU5Dm3TbRYwg", "ZLXjKQajSR61NZjxrljh9Q", "1rXKnBXJTZW3H32gqvCdNA"]
-# }
-
 # Terraform managed random uuid to be stored in secrets manger
 resource "random_id" "kafka_cluster_id" {
   byte_length = 16
