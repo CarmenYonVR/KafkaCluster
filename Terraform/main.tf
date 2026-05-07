@@ -20,16 +20,37 @@ variable "hosted_zone_fqdn" {
   default     = "tf-kafka-broker.com"
 }
 
-variable "kafka_cluster_id" {
-  description = "Kafka cluster ID"
-  type        = string
-  default     = "58KYKy0VTL-31339uL9O2w"
+# Terraform managed random uuid to be stored in secrets manger
+resource "random_id" "kafka_cluster_id" {
+  byte_length = 16
+}
+resource "random_id" "broker0_id" {
+  byte_length = 16
+}
+resource "random_id" "broker1_id" {
+  byte_length = 16
+}
+resource "random_id" "broker2_id" {
+  byte_length = 16
 }
 
-variable "broker_ids" {
-  description = "An array of Kafka broker IDs"
-  type        = list(string)
-  default     = ["WtToW5ylTEKU5Dm3TbRYwg", "ZLXjKQajSR61NZjxrljh9Q", "1rXKnBXJTZW3H32gqvCdNA"]
+# Create the secret
+resource "aws_secretsmanager_secret" "kafka_cluster_ids" {
+  name = "kafka_cluster_credentials"
+  # deletes secret immediately on destroy
+  recovery_window_in_days = 0
+}
+
+# Add uuid to the secret
+resource "aws_secretsmanager_secret_version" "kafka_cluster_ids_version" {
+  secret_id = aws_secretsmanager_secret.kafka_cluster_ids.id
+  secret_string = jsonencode({
+    cluster_id = random_id.kafka_cluster_id.b64_url
+    broker0_id = random_id.broker0_id.b64_url
+    broker1_id = random_id.broker1_id.b64_url
+    broker2_id = random_id.broker2_id.b64_url
+    }
+  )
 }
 
 # Create VPC using module
@@ -51,7 +72,7 @@ module "vpc" {
 }
 
 data "aws_ssm_parameter" "al2023_ami" {
-  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64" 
+  name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
 }
 
 # Broker security group configuration
@@ -107,8 +128,8 @@ resource "aws_instance" "tf_bastion_host" {
   ami           = data.aws_ssm_parameter.al2023_ami.value
   instance_type = "t2.micro"
 
-  subnet_id              = module.vpc.public_subnets[0]
-  vpc_security_group_ids = [aws_security_group.bastion_host_security_group.id]
+  subnet_id                   = module.vpc.public_subnets[0]
+  vpc_security_group_ids      = [aws_security_group.bastion_host_security_group.id]
   associate_public_ip_address = true
 
   user_data = <<-EOF
@@ -127,9 +148,56 @@ resource "aws_instance" "tf_bastion_host" {
   }
 }
 
+
+resource "aws_iam_role" "kafka_broker_role" {
+  assume_role_policy = <<-EOF
+  {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Action": "sts:AssumeRole",
+        "Principal": {
+          "Service": "ec2.amazonaws.com"
+        },
+        "Effect": "Allow",
+        "Sid": ""
+      }
+    ]
+  }
+  EOF
+
+  tags = {
+    Name = "TFKafkaBrokerRole"
+  }
+}
+
+resource "aws_iam_role_policy" "broker_secrets_policy" {
+  name = "broker_secrets_policy"
+  role = aws_iam_role.kafka_broker_role.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = aws_secretsmanager_secret.kafka_cluster_ids.arn
+      }
+    ]
+  })
+}
+
+resource "aws_iam_instance_profile" "broker_instance_profile" {
+  name = "broker_instance_profile"
+  role = aws_iam_role.kafka_broker_role.name
+}
+
 resource "aws_instance" "tf_broker_0" {
-  ami           = data.aws_ssm_parameter.al2023_ami.value
-  instance_type = var.broker_instance_type
+  ami                  = data.aws_ssm_parameter.al2023_ami.value
+  instance_type        = var.broker_instance_type
+  iam_instance_profile = aws_iam_instance_profile.broker_instance_profile.name
 
   subnet_id              = module.vpc.private_subnets[0]
   vpc_security_group_ids = [aws_security_group.broker_security_group.id]
@@ -141,17 +209,17 @@ resource "aws_instance" "tf_broker_0" {
   user_data = base64encode("${templatefile("${path.module}/user_data.sh", {
     NODE_ID          = 1
     BROKER_INDEX     = 0
-    KAFKA_CLUSTER_ID = var.kafka_cluster_id
     HOSTED_ZONE_FQDN = var.hosted_zone_fqdn
-    BROKER0_ID       = var.broker_ids[0]
-    BROKER1_ID       = var.broker_ids[1]
-    BROKER2_ID       = var.broker_ids[2]
+    REGION = "us-east-1"
+    KAFKA_SECRET_NAME = aws_secretsmanager_secret.kafka_cluster_ids.name
   })}")
+  user_data_replace_on_change = true
 }
 
 resource "aws_instance" "tf_broker_1" {
-  ami           = data.aws_ssm_parameter.al2023_ami.value
-  instance_type = var.broker_instance_type
+  ami                  = data.aws_ssm_parameter.al2023_ami.value
+  instance_type        = var.broker_instance_type
+  iam_instance_profile = aws_iam_instance_profile.broker_instance_profile.name
 
   subnet_id              = module.vpc.private_subnets[0]
   vpc_security_group_ids = [aws_security_group.broker_security_group.id]
@@ -163,17 +231,17 @@ resource "aws_instance" "tf_broker_1" {
   user_data = base64encode("${templatefile("${path.module}/user_data.sh", {
     NODE_ID          = 2
     BROKER_INDEX     = 1
-    KAFKA_CLUSTER_ID = var.kafka_cluster_id
     HOSTED_ZONE_FQDN = var.hosted_zone_fqdn
-    BROKER0_ID       = var.broker_ids[0]
-    BROKER1_ID       = var.broker_ids[1]
-    BROKER2_ID       = var.broker_ids[2]
+    REGION = "us-east-1"
+    KAFKA_SECRET_NAME = aws_secretsmanager_secret.kafka_cluster_ids.name
   })}")
+  user_data_replace_on_change = true
 }
 
 resource "aws_instance" "tf_broker_2" {
-  ami           = data.aws_ssm_parameter.al2023_ami.value
-  instance_type = var.broker_instance_type
+  ami                  = data.aws_ssm_parameter.al2023_ami.value
+  instance_type        = var.broker_instance_type
+  iam_instance_profile = aws_iam_instance_profile.broker_instance_profile.name
 
   subnet_id              = module.vpc.private_subnets[0]
   vpc_security_group_ids = [aws_security_group.broker_security_group.id]
@@ -185,12 +253,11 @@ resource "aws_instance" "tf_broker_2" {
   user_data = base64encode("${templatefile("${path.module}/user_data.sh", {
     NODE_ID          = 3
     BROKER_INDEX     = 2
-    KAFKA_CLUSTER_ID = var.kafka_cluster_id
     HOSTED_ZONE_FQDN = var.hosted_zone_fqdn
-    BROKER0_ID       = var.broker_ids[0]
-    BROKER1_ID       = var.broker_ids[1]
-    BROKER2_ID       = var.broker_ids[2]
+    REGION = "us-east-1"
+    KAFKA_SECRET_NAME = aws_secretsmanager_secret.kafka_cluster_ids.name
   })}")
+  user_data_replace_on_change = true
 }
 
 resource "aws_route53_zone" "kafka_zone" {

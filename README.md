@@ -18,6 +18,15 @@ If using an aws cli profile, append `--profile <Profilename>`
 
 ### Terraform
 
+In order to generate properly formatted ids, the terraform implementation needs access to kafka binaries. Download and extract them into the Terraform folder with: 
+
+```
+curl -O https://dlcdn.apache.org/kafka/4.2.0/kafka_2.13-4.2.0.tgz
+tar -xzf kafka_2.13-4.2.0.tgz
+rm kafka_2.13-4.2.0.tgz
+```
+
+
 If using an aws cli profile, first run 
 
 ```
