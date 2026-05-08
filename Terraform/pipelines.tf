@@ -62,7 +62,8 @@ resource "aws_codestarconnections_connection" "kafka_cluster" {
 resource "aws_codepipeline" "kafka_cluster_pipeline" {
   name     = "KafkaClusterPipeline"
   role_arn = aws_iam_role.kafka_cluster_pipeline.arn
-
+  pipeline_type = "V2"
+  
   artifact_store {
     location = aws_s3_bucket.kafka_cluster_artifacts.id
     type     = "S3"
