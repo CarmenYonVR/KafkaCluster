@@ -252,7 +252,8 @@ data "aws_iam_policy_document" "kafka_cluster_cloudbuild" {
     effect = "Allow"
     actions = ["codepipeline:*"]
     resources = [
-      aws_codepipeline.kafka_cluster_pipeline.arn
+      aws_codepipeline.kafka_cluster_pipeline.arn,
+      "${aws_codepipeline.kafka_cluster_pipeline.arn}/*"
     ]
   }
 }
