@@ -74,7 +74,7 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
       source_action_name = "ApplicationSource"
       push {
         branches {
-          includes = "main"
+          includes = ["main"]
         }
       }
     }
