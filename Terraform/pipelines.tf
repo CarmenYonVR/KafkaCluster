@@ -220,7 +220,7 @@ data "aws_iam_policy_document" "kafka_cluster_cloudbuild" {
   }
   statement {
     effect    = "Allow"
-    actions   = ["codeconnections:*",]
+    actions   = ["codeconnections:*"]
     resources = [aws_codestarconnections_connection.kafka_cluster.arn]
   }
   # TODO: I don't like this, should restrict 
