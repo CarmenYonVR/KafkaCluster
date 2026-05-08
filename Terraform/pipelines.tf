@@ -37,7 +37,8 @@ data "aws_iam_policy_document" "kafka_cluster_pipeline_policy" {
   statement {
     effect = "Allow"
     actions = [
-      "codeconnections:UseConnection"
+      "codeconnections:*", 
+      "codestar-connections:*"
     ]
     resources = [
       aws_codestarconnections_connection.kafka_cluster.arn
@@ -83,6 +84,7 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
         ConnectionArn    = aws_codestarconnections_connection.kafka_cluster.arn
         FullRepositoryId = "CarmenYonVR/KafkaCluster"
         BranchName       = "main"
+        DetectChanges = "true"
       }
     }
   }
@@ -219,7 +221,7 @@ data "aws_iam_policy_document" "kafka_cluster_cloudbuild" {
   }
   statement {
     effect    = "Allow"
-    actions   = ["codeconnections:*"]
+    actions   = ["codeconnections:*","codestar-connections:*"]
     resources = [aws_codestarconnections_connection.kafka_cluster.arn]
   }
   # TODO: I don't like this, should restrict 
