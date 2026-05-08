@@ -150,6 +150,7 @@ resource "aws_instance" "tf_bastion_host" {
 
 
 resource "aws_iam_role" "kafka_broker_role" {
+  name = "KafkaBrokerInstanceRole"
   assume_role_policy = <<-EOF
   {
     "Version": "2012-10-17",

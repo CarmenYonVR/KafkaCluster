@@ -6,8 +6,8 @@ resource "aws_iam_role" "kafka_cluster_pipeline" {
   assume_role_policy = data.aws_iam_policy_document.kafka_cluster_pipeline_assume_role.json
 }
 resource "aws_iam_role_policy" "kafka_cluster_pipeline" {
-  name = "kafka-cluster-cloudbuild-policy"
-  role = aws_iam_role.kafka_cluster_pipeline.id
+  name   = "kafka-cluster-cloudbuild-policy"
+  role   = aws_iam_role.kafka_cluster_pipeline.id
   policy = data.aws_iam_policy_document.kafka_cluster_pipeline_policy.json
 }
 data "aws_iam_policy_document" "kafka_cluster_pipeline_assume_role" {
@@ -167,13 +167,19 @@ data "aws_iam_policy_document" "kafka_cluster_cloudbuild" {
       "s3:GetObject",
       "s3:PutObject",
       "s3:GetObjectVersion",
-      "s3:ListBucket"
     ]
     resources = [
-      aws_s3_bucket.kafka_cluster_artifacts.arn,
-      "${aws_s3_bucket.kafka_cluster_artifacts.arn}/*",
       "arn:aws:s3:::cyon-kafka-cluster-terraform-state",
       "arn:aws:s3:::cyon-kafka-cluster-terraform-state/*"
+    ]
+  }
+  # TODO: restrict
+  statement {
+    effect  = "Allow"
+    actions = ["s3:*"]
+    resources = [
+      aws_s3_bucket.kafka_cluster_artifacts.arn,
+      "${aws_s3_bucket.kafka_cluster_artifacts.arn}/*"
     ]
   }
   statement {
@@ -183,6 +189,58 @@ data "aws_iam_policy_document" "kafka_cluster_cloudbuild" {
     ]
     resources = [
       "arn:aws:ssm:us-east-1::parameter/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64"
+    ]
+  }
+  # Allow terraform to fully manage the kafka_cluster_ids secret
+  statement {
+    effect = "Allow"
+    actions = [
+      "secretsmanager:*"
+    ]
+    resources = [
+      aws_secretsmanager_secret.kafka_cluster_ids.arn
+    ]
+  }
+  # Allow terraform to fully manage the roles defined in this repo
+  statement {
+    effect  = "Allow"
+    actions = ["iam:*"]
+    resources = [
+      aws_iam_role.kafka_broker_role.arn,
+      aws_iam_role.kafka_cluster_pipeline.arn,
+      aws_iam_role.kafka_cluster_codebuild_role.arn,
+      aws_iam_instance_profile.broker_instance_profile.arn
+    ]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["route53:*"]
+    resources = [aws_route53_zone.kafka_zone.arn]
+  }
+  statement {
+    effect    = "Allow"
+    actions   = ["codeconnections:*"]
+    resources = [aws_codeconnections_connection.kafka_cluster.arn]
+  }
+  # TODO: I don't like this, should restrict 
+  statement {
+    effect    = "Allow"
+    actions   = ["ec2:*"]
+    resources = ["*"]
+  }
+  statement {
+    effect  = "Allow"
+    actions = ["codebuild:*"]
+    resources = [
+      aws_codebuild_project.terraform_apply.arn,
+      aws_codebuild_project.terraform_plan.arn
+    ]
+  }
+  statement {
+    effect = "Allow"
+    actions = ["codepipeline:*"]
+    resources = [
+      aws_codepipeline.kafka_cluster_pipeline.arn
     ]
   }
 }
