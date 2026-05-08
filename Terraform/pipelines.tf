@@ -68,6 +68,18 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
     type     = "S3"
   }
 
+  trigger {
+    provider_type = "CodeStarSourceConnection"
+    git_configuration {
+      source_action_name = "ApplicationSource"
+      push {
+        branches {
+          includes = "main"
+        }
+      }
+    }
+  }
+
   stage {
     name = "Source"
 
