@@ -76,7 +76,7 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
       name             = "Source"
       category         = "Source"
       owner            = "AWS"
-      provider         = "CodeStarSourceConnection"
+      provider        = "CodeStarSourceConnection"
       version          = "1"
       output_artifacts = ["source_output"]
 
