@@ -40,7 +40,7 @@ data "aws_iam_policy_document" "kafka_cluster_pipeline_policy" {
       "codeconnections:UseConnection"
     ]
     resources = [
-      aws_codeconnections_connection.kafka_cluster.arn
+      aws_codestarconnections_connection.kafka_cluster.arn
     ]
   }
   statement {
@@ -53,7 +53,7 @@ data "aws_iam_policy_document" "kafka_cluster_pipeline_policy" {
   }
 }
 
-resource "aws_codeconnections_connection" "kafka_cluster" {
+resource "aws_codestarconnections_connection" "kafka_cluster" {
   name          = "kafka-cluster-github-connection"
   provider_type = "GitHub"
 }
@@ -80,7 +80,7 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
       output_artifacts = ["source_output"]
 
       configuration = {
-        ConnectionArn    = aws_codeconnections_connection.kafka_cluster.arn
+        ConnectionArn    = aws_codestarconnections_connection.kafka_cluster.arn
         FullRepositoryId = "CarmenYonVR/KafkaCluster"
         BranchName       = "main"
       }
@@ -220,7 +220,7 @@ data "aws_iam_policy_document" "kafka_cluster_cloudbuild" {
   statement {
     effect    = "Allow"
     actions   = ["codeconnections:*"]
-    resources = [aws_codeconnections_connection.kafka_cluster.arn]
+    resources = [aws_codestarconnections_connection.kafka_cluster.arn]
   }
   # TODO: I don't like this, should restrict 
   statement {
