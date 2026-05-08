@@ -27,7 +27,8 @@ data "aws_iam_policy_document" "kafka_cluster_pipeline_policy" {
       "s3:GetObject",
       "s3:GetObjectVersion",
       "s3:GetBucketVersioning",
-      "s3:PutObject"
+      "s3:PutObject",
+      "s3:ListBucket"
     ]
     resources = [
       aws_s3_bucket.kafka_cluster_artifacts.arn,
@@ -69,6 +70,18 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
     type     = "S3"
   }
 
+  trigger {
+    provider_type = "CodeStarSourceConnection"
+    git_configuration {
+      source_action_name = "Source"
+      push {
+        branches {
+          includes = ["main"]
+        }
+      }
+    }
+  }
+
   stage {
     name = "Source"
 
@@ -76,7 +89,7 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
       name             = "Source"
       category         = "Source"
       owner            = "AWS"
-      provider        = "CodeStarSourceConnection"
+      provider         = "CodeStarSourceConnection"
       version          = "1"
       output_artifacts = ["source_output"]
 
@@ -84,6 +97,7 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
         ConnectionArn    = aws_codestarconnections_connection.kafka_cluster.arn
         FullRepositoryId = "CarmenYonVR/KafkaCluster"
         BranchName       = "main"
+        DetectChanges    = true
       }
     }
   }
