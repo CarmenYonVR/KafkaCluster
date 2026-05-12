@@ -55,7 +55,7 @@ data "aws_iam_policy_document" "kafka_cluster_pipeline_policy" {
 }
 
 resource "aws_codestarconnections_connection" "kafka_cluster" {
-  name          = "kafka-cluster-github-connection"
+  name         = "kafka-cluster-github-connection"
   provider_type = "GitHub"
 }
 
