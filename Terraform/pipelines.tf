@@ -271,7 +271,8 @@ data "aws_iam_policy_document" "kafka_cluster_cloudbuild" {
     actions = ["codebuild:*"]
     resources = [
       aws_codebuild_project.terraform_apply.arn,
-      aws_codebuild_project.terraform_plan.arn
+      aws_codebuild_project.terraform_plan.arn,
+      aws_codebuild_project.opa.arn
     ]
   }
   statement {
