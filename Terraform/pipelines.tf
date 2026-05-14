@@ -421,7 +421,7 @@ version: 0.2
 phases:
   install:
     commands:
-      - curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_arm64
+      - curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_amd64
       - chmod 755 ./opa
       - mv ./opa /usr/local/bin/opa
   pre_build:
