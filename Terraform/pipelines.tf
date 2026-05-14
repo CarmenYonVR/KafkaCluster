@@ -55,7 +55,7 @@ data "aws_iam_policy_document" "kafka_cluster_pipeline_policy" {
 }
 
 resource "aws_codestarconnections_connection" "kafka_cluster" {
-  name         = "kafka-cluster-github-connection"
+  name          = "kafka-cluster-github-connection"
   provider_type = "GitHub"
 }
 
@@ -116,6 +116,24 @@ resource "aws_codepipeline" "kafka_cluster_pipeline" {
 
       configuration = {
         ProjectName = aws_codebuild_project.terraform_plan.name
+      }
+    }
+  }
+
+  stage {
+    name = "OPA"
+
+    action {
+      name             = "OPA"
+      category         = "Build"
+      owner            = "AWS"
+      provider         = "CodeBuild"
+      input_artifacts  = ["build_output"]
+      output_artifacts = ["opa_artifacts"]
+      version          = "1"
+
+      configuration = {
+        ProjectName = aws_codebuild_project.opa.name
       }
     }
   }
@@ -316,6 +334,7 @@ phases:
       - cd Terraform
       - terraform init -input=false
       - terraform plan -input=false -out=tfplan
+      - terraform show -json tfplan > tfplan.json
   post_build:
     commands: 
       - echo "Completed Terraform plan phase"
@@ -323,6 +342,7 @@ phases:
 artifacts:
   files: 
     - tfplan
+    - tfplan.json
     - .terraform/**/*
     - "**/*"
 EOF
@@ -364,6 +384,52 @@ phases:
       - cd Terraform
       - terraform init -input=false
       - terraform apply -input=false tfplan
+  post_build:
+    commands: 
+      - echo "Completed Terraform apply phase"
+  
+artifacts:
+  files: 
+    - "**/*"
+EOF
+  }
+}
+
+resource "aws_codebuild_project" "opa" {
+  name        = "opa"
+  description = "run OPA analysis"
+  # TODO probably needs a different service role
+  service_role = aws_iam_role.kafka_cluster_codebuild_role.arn
+
+  artifacts {
+    type = "CODEPIPELINE"
+  }
+
+  environment {
+    type            = "LINUX_CONTAINER"
+    compute_type    = "BUILD_GENERAL1_SMALL"
+    image           = "aws/codebuild/amazonlinux-x86_64-standard:6.0"
+    privileged_mode = false
+  }
+
+  source {
+    type      = "CODEPIPELINE"
+    buildspec = <<EOF
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - curl -L -o opa https://openpolicyagent.org/downloads/latest/opa_linux_arm64
+      - chmod 755 ./opa
+      - mv ./opa /usr/local/bin/opa
+  pre_build:
+    commands:
+      - opa version
+  build:
+    commands:
+      - cd Terraform
+      - opa exec --decision terraform --bundle policy/ tfplan.json
   post_build:
     commands: 
       - echo "Completed Terraform apply phase"
